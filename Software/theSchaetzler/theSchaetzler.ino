@@ -40,6 +40,7 @@ void setup() {
   if(ota_on) {
     mySchaetzler.setLED(0,64,0);
     mySchaetzler.setupOta();
+    Serial.println("OTA is active");
     delay(500);
   }
   mySchaetzler.setLED(0,0,0);
@@ -48,7 +49,7 @@ void setup() {
 void loop() {    
   if(!mySchaetzler.readButton()){
     if((millis()-ipmillis)>4000){
-      mySchaetzler.showip();
+      mySchaetzler.showIP();
     }
   } else {
     ipmillis=millis();

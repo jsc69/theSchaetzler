@@ -1,3 +1,14 @@
+/**************************************************************************
+ Class for TheSchätzler board
+
+ open points:
+   - sleep + deactive WLAN, OTA, display etc
+   - read value via interupts
+   - html pages (make them nicer, OTA don't work, use REST?)
+   - remove global variables? (needed in static function to handle http requests)
+
+ **************************************************************************/
+
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -24,7 +35,7 @@ WebServer server(80);
 const wifi_power_t wifiPower = WIFI_POWER_13dBm;
 
 // ssid and password are taken from <Arduino_Home>/libraries/credentials/credentials.h
-// if not used, remove #include <credentials.h> above and set values here
+// if not used as library, remove #include <credentials.h> above and set values here
 const char* ssid = SSID;
 const char* password = PASSWORD;
 
@@ -205,19 +216,20 @@ void theSchaetzler::showValues() {
   display.print(" BAT:");
   display.println(readBatteryVoltage());
   display.setTextSize(2);
-  display.print("x.xx");//  display.print(read());
+  display.print("x.xx");//  display.print(read()); !!!!
   display.println("mm");
   display.display();
 }
 
+// not used, keep as example
 void theSchaetzler::testscrolltext() {
   display.clearDisplay();
 
-  display.setTextSize(2); // Draw 2X-scale text
+  display.setTextSize(2);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(10, 0);
   display.println(F("scroll"));
-  display.display();      // Show initial text
+  display.display(); 
   delay(100);
 
   // Scroll in various directions, pausing in-between:
@@ -241,13 +253,13 @@ IPAddress theSchaetzler::getIP() {
   return WiFi.localIP();
 }
 
-void theSchaetzler::showip() {
+void theSchaetzler::showIP() {
   display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextSize(2);
   display.println("IP:");
   display.setTextSize(1);
-  display.print(WiFi.localIP().toString());
+  display.print(getIP().toString());
   display.display();
 }
 
@@ -265,6 +277,7 @@ void theSchaetzler::setLED(uint8_t r, uint8_t g, uint8_t b) {
   pixels.show();
 }
 
+// not used, keep as example
 void theSchaetzler::scanWLan() {
   Serial.println("Scan start");
   int n = WiFi.scanNetworks();
