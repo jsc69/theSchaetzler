@@ -5,6 +5,7 @@
     ESP32S3 Dev Module
 
  **************************************************************************/
+#include <credentials.h>
 
 #include "Schaetzler.h"
 
@@ -14,7 +15,12 @@ const bool display_on = true;
 
 unsigned long ipmillis;
 
-Schaetzler theSchaetzler(0);
+// ssid and password are taken from <Arduino_Home>/libraries/credentials/credentials.h
+// if not used as library, remove #include <credentials.h> above and set values here
+const char* ssid = SSID;
+const char* password = PASSWORD;
+
+Schaetzler theSchaetzler(ssid, password);
 
 void setup() {
   Serial.begin(115200);
@@ -54,10 +60,6 @@ void loop() {
   } else {
     ipmillis=millis();
     theSchaetzler.showValues();
-  }
-  
-  if(wlan_on){
-    theSchaetzler.handleClient();
   }
 
   if(ota_on){

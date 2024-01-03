@@ -1,12 +1,11 @@
 /**************************************************************************
- Class for TheSchätzler board
+ Class for TheSchätzler board (https://github.com/theBrutzler/theSchaetzler)
 
  open points:
    - sleep + deactive WLAN, OTA, display etc
    - read value via interupts
-   - html pages (make them nicer, OTA don't work, use REST?)
+   - html pages (make them nicer, OTA don't work)
    - remove global variables? (needed in static function to handle http requests)
-   - multi core?
 
  **************************************************************************/
 
@@ -21,10 +20,9 @@
 #include <ESPmDNS.h>
 #include <ArduinoOTA.h>
 
-#include <credentials.h>
-
-#include "logo.h"
 #include "Schaetzler.h"
+#include "logo.h"
+#include "statuspage.h"
 
 #define NUMPIXELS  1
 #define OLED_RESET -1
@@ -35,18 +33,18 @@ Adafruit_NeoPixel pixels(NUMPIXELS, PIN_SCREEN, NEO_GRB + NEO_KHZ800);
 WebServer server(80);
 const wifi_power_t wifiPower = WIFI_POWER_13dBm;
 
-// ssid and password are taken from <Arduino_Home>/libraries/credentials/credentials.h
-// if not used as library, remove #include <credentials.h> above and set values here
-const char* ssid = SSID;
-const char* password = PASSWORD;
-
 float messurement;
 float batteryVoltage;
 float calipersVoltage;
 
 bool ota_setup = false;
 
-Schaetzler::Schaetzler(uint8_t state) {
+TaskHandle_t WebServerTask;
+TaskHandle_t ReadTask;
+
+Schaetzler::Schaetzler(const char* ssid, const char* pwd) {
+  strcpy(this->ssid, ssid);
+  strcpy(this->password, pwd);
 }
 
 void Schaetzler::init() {
@@ -65,6 +63,52 @@ void Schaetzler::init() {
   analogWrite(VCC_CALIPERS,(int)(Voltage*255/3.24));
 
   pixels.begin();
+
+  // Create and start tasks for the WebServer and for the messurement on second cpu
+  // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
+  uint16_t stackSize = 10000;
+  void* parameter = NULL;
+  uint8_t cpu = 1; // 0 or 1
+  uint8_t priority = 0; // 0->lowest
+  xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, cpu);
+  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, cpu);
+}
+
+void Schaetzler::handleClientTask(void* parameter) {
+  while(true) {
+    server.handleClient();
+  }
+}
+
+void Schaetzler::readTask(void* parameter) {
+  while(true) {
+    uint16_t tempmicros=micros();
+    while ((digitalRead(PIN_CLOCK)==HIGH)) {}
+    //if clock is LOW wait until it turns to HIGH
+    tempmicros=micros();
+    while ((digitalRead(PIN_CLOCK)==LOW)) {} //wait for the end of the HIGH pulse
+    if ((micros()-tempmicros)>500) { //if the HIGH pulse was longer than 500 micros we are at the start of a new bit sequence
+      messurement = decode(); //decode the bit sequence
+    }
+  }
+}
+
+float Schaetzler::decode() {
+  int sign=1;
+  long value=0;
+  for (int i=0;i<23;i++) {
+    while (digitalRead(PIN_CLOCK)==HIGH) {} //wait until clock returns to HIGH- the first bit is not needed
+    while (digitalRead(PIN_CLOCK)==LOW) {} //wait until clock returns to LOW
+    if (digitalRead(PIN_DATA)==LOW) {
+      if (i<20) {
+        value|= 1<<i;
+      }
+      if (i==20) {
+        sign=-1;
+      }
+    }
+  }
+  return (value*sign)/100.00;    
 }
 
 void Schaetzler::setupDisplay() {
@@ -84,7 +128,7 @@ void Schaetzler::setupDisplay() {
 
 void Schaetzler::setupOta() {
   // Port defaults to 3232
-  ArduinoOTA.setHostname("Schaetzler");
+  ArduinoOTA.setHostname("theSchaetzler");
   ArduinoOTA.setPassword("admin");
   // Password can be set with it's md5 value as well
   // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
@@ -121,6 +165,11 @@ void Schaetzler::setupOta() {
   ArduinoOTA.begin();  
 }
 
+void Schaetzler::handleOta() {
+  ArduinoOTA.handle();
+}
+
+
 void Schaetzler::setupWLan() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
@@ -143,6 +192,7 @@ void Schaetzler::setupWLan() {
     server.send(200, "text/html", "OTA Activ");
     //ota_on = true;
   });
+  server.on("/read", handleRead);
 
   server.begin();
   Serial.println("HTTP server started");
@@ -168,12 +218,15 @@ void Schaetzler::handleRoot() {
 }
 
 void Schaetzler::handleStatus() {
-    float RSSI = WiFi.RSSI();
-    server.send(200, "text/html", 
-      (String)"<meta http-equiv=\"refresh\" content=\"5\" />"
-      +"Messwert:"+ String(messurement)+ "<br>Akku: "+ String(batteryVoltage)+"<br>RSSI: "+ String(RSSI));
+  String s = webpage;
+  server.send(200, "text/html", s);
 }
 
+void Schaetzler::handleRead() {
+  char buffer[40];
+  sprintf(buffer, "%6.2f", messurement);
+  server.send(200, "text/plane", buffer);
+}
 
 bool Schaetzler::readButton() {
   return digitalRead(PIN_BUTTON);
@@ -208,6 +261,9 @@ void Schaetzler::showUpdateProgress(uint8_t progress) {
 }
 
 void Schaetzler::showValues() {
+  char buffer[40];
+  sprintf(buffer, "%6.2f", messurement);
+
   display.clearDisplay();
   display.setTextSize(1); 
   display.setTextColor(SSD1306_WHITE);
@@ -217,10 +273,31 @@ void Schaetzler::showValues() {
   display.print(" BAT:");
   display.println(readBatteryVoltage());
   display.setTextSize(2);
-  display.print("x.xx");//  display.print(read()); !!!!
+  display.print(buffer);
   display.println("mm");
   display.display();
 }
+
+IPAddress Schaetzler::getIP() {
+  return WiFi.localIP();
+}
+
+void Schaetzler::showIP() {
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(2);
+  display.println("IP:");
+  display.setTextSize(1);
+  display.print(getIP().toString());
+  display.display();
+}
+
+void Schaetzler::setLED(uint8_t r, uint8_t g, uint8_t b) {
+  pixels.setPixelColor(0, pixels.Color(r, g, b));
+  pixels.show();
+}
+
+
 
 // not used, keep as example
 void Schaetzler::testscrolltext() {
@@ -248,34 +325,6 @@ void Schaetzler::testscrolltext() {
   delay(2000);
   display.stopscroll();
   delay(1000);
-}
-
-IPAddress Schaetzler::getIP() {
-  return WiFi.localIP();
-}
-
-void Schaetzler::showIP() {
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.setTextSize(2);
-  display.println("IP:");
-  display.setTextSize(1);
-  display.print(getIP().toString());
-  display.display();
-}
-
-void Schaetzler::handleClient() {
-  server.handleClient();
-}
-
-void Schaetzler::handleOta() {
-  ArduinoOTA.handle();
-}
-
-
-void Schaetzler::setLED(uint8_t r, uint8_t g, uint8_t b) {
-  pixels.setPixelColor(0, pixels.Color(r, g, b));
-  pixels.show();
 }
 
 // not used, keep as example
@@ -333,42 +382,4 @@ void Schaetzler::scanWLan() {
         Serial.println();
     }
   }
-}
-
-
-float Schaetzler::read() {
-  while(true){
-    uint16_t tempmicros=micros();
-    while ((digitalRead(PIN_CLOCK)==HIGH)) {}
-    //if clock is LOW wait until it turns to HIGH
-    tempmicros=micros();
-    while ((digitalRead(PIN_CLOCK)==LOW)) {} //wait for the end of the HIGH pulse
-    if ((micros()-tempmicros)>500) { //if the HIGH pulse was longer than 500 micros we are at the start of a new bit sequence
-      messurement = decode(); //decode the bit sequence
-      return messurement;
-    }
-  }
-}
-
-float Schaetzler::decode() {
-  int sign=1;
-  long value=0;
-  for (int i=0;i<23;i++) {
-    //esp_sleep_enable_ext1_wakeup(GPIO_NUM_12,HIGH) 
-    //immer nur Aufwachen wenn GPIO_NUM_12 High ist while 
-    //(digitalRead(clockpin)==LOW) {esp_light_sleep_start() 
-    //print "ESP GEHT SCHLAFEN"} while (digitalRead(clockpin)==HIGH) { 
-    //Automatisch wach und hier Werte messen (durch "esp_sleep_enable_ext1_wakeup" }
-    while (digitalRead(PIN_CLOCK)==HIGH) {} //wait until clock returns to HIGH- the first bit is not needed
-    while (digitalRead(PIN_CLOCK)==LOW) {} //wait until clock returns to LOW
-    if (digitalRead(PIN_DATA)==LOW) {
-      if (i<20) {
-        value|= 1<<i;
-      }
-      if (i==20) {
-        sign=-1;
-      }
-    }
-  }
-  return (value*sign)/100.00;    
 }

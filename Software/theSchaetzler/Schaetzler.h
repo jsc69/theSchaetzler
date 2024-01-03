@@ -19,20 +19,26 @@
 
 class Schaetzler {
 private:
+  char ssid[80];
+  char password[80];
+
   static void handleNotFound();
   static void handleRoot();
   static void handleStatus();
+  static void handleRead();
   static void showUpdateProgress(uint8_t progress);
+
+  static void handleClientTask(void* parameter);
+  static void readTask(void* parameter);
+  static float decode();
 
   float readBatteryVoltage();
   float readCalipersVoltage();
-  float decode();
 
 public:
-  Schaetzler(uint8_t state);
+  Schaetzler(const char* ssid, const char* pwd);
   void init();
 
-  void handleClient();
   void handleOta();
 
   void setupDisplay();
@@ -51,7 +57,6 @@ public:
 	void setLED(uint8_t r, uint8_t g, uint8_t b);
   void scanWLan();
 
-  float read();
   float getMessurement();
 
 protected:
