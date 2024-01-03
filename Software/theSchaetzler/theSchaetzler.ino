@@ -6,7 +6,7 @@
 
  **************************************************************************/
 
-#include "theSchaetzler.h"
+#include "Schaetzler.h"
 
 const bool wlan_on = true;
 const bool ota_on = true;
@@ -14,53 +14,53 @@ const bool display_on = true;
 
 unsigned long ipmillis;
 
-theSchaetzler mySchaetzler(0);
+Schaetzler theSchaetzler(0);
 
 void setup() {
   Serial.begin(115200);
   Serial.println("start");
 
-  mySchaetzler.init();
+  theSchaetzler.init();
 
   if(display_on) {
-    mySchaetzler.setLED(64,64,0);
-    mySchaetzler.setupDisplay();
-    mySchaetzler.displayLogo();
+    theSchaetzler.setLED(64,64,0);
+    theSchaetzler.setupDisplay();
+    theSchaetzler.displayLogo();
     delay(500);
   }
 
   if(wlan_on){
-    mySchaetzler.setLED(0,0,64);
-    mySchaetzler.setupWLan();
+    theSchaetzler.setLED(0,0,64);
+    theSchaetzler.setupWLan();
     Serial.print("IP address: ");
-    Serial.println(mySchaetzler.getIP());
+    Serial.println(theSchaetzler.getIP());
     delay(500);
   }
 
   if(ota_on) {
-    mySchaetzler.setLED(0,64,0);
-    mySchaetzler.setupOta();
+    theSchaetzler.setLED(0,64,0);
+    theSchaetzler.setupOta();
     Serial.println("OTA is active");
     delay(500);
   }
-  mySchaetzler.setLED(0,0,0);
+  theSchaetzler.setLED(0,0,0);
 }
 
 void loop() {    
-  if(!mySchaetzler.readButton()){
+  if(!theSchaetzler.readButton()){
     if((millis()-ipmillis)>4000){
-      mySchaetzler.showIP();
+      theSchaetzler.showIP();
     }
   } else {
     ipmillis=millis();
-    mySchaetzler.showValues();
+    theSchaetzler.showValues();
   }
   
   if(wlan_on){
-    mySchaetzler.handleClient();
+    theSchaetzler.handleClient();
   }
 
   if(ota_on){
-    mySchaetzler.handleOta();
+    theSchaetzler.handleOta();
   }
 }

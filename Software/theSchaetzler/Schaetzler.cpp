@@ -6,6 +6,7 @@
    - read value via interupts
    - html pages (make them nicer, OTA don't work, use REST?)
    - remove global variables? (needed in static function to handle http requests)
+   - multi core?
 
  **************************************************************************/
 
@@ -23,7 +24,7 @@
 #include <credentials.h>
 
 #include "logo.h"
-#include "theSchaetzler.h"
+#include "Schaetzler.h"
 
 #define NUMPIXELS  1
 #define OLED_RESET -1
@@ -45,10 +46,10 @@ float calipersVoltage;
 
 bool ota_setup = false;
 
-theSchaetzler::theSchaetzler(uint8_t state) {
+Schaetzler::Schaetzler(uint8_t state) {
 }
 
-void theSchaetzler::init() {
+void Schaetzler::init() {
   pinMode(PIN_CLOCK, INPUT_PULLUP);
   pinMode(PIN_DATA, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
@@ -66,7 +67,7 @@ void theSchaetzler::init() {
   pixels.begin();
 }
 
-void theSchaetzler::setupDisplay() {
+void Schaetzler::setupDisplay() {
   digitalWrite(VCC_DISPLAY, HIGH);
   delay(20);
   I2C.begin(11, 12);
@@ -81,9 +82,9 @@ void theSchaetzler::setupDisplay() {
   }
 }
 
-void theSchaetzler::setupOta() {
+void Schaetzler::setupOta() {
   // Port defaults to 3232
-  ArduinoOTA.setHostname("theSchaetzler");
+  ArduinoOTA.setHostname("Schaetzler");
   ArduinoOTA.setPassword("admin");
   // Password can be set with it's md5 value as well
   // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
@@ -120,7 +121,7 @@ void theSchaetzler::setupOta() {
   ArduinoOTA.begin();  
 }
 
-void theSchaetzler::setupWLan() {
+void Schaetzler::setupWLan() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   WiFi.setTxPower(wifiPower);
@@ -147,7 +148,7 @@ void theSchaetzler::setupWLan() {
   Serial.println("HTTP server started");
 }
 
-void theSchaetzler::handleNotFound() {
+void Schaetzler::handleNotFound() {
   String message = "File Not Found\n\n";
   message += "URI: ";
   message += server.uri();
@@ -162,11 +163,11 @@ void theSchaetzler::handleNotFound() {
   server.send(404, "text/plain", message);
 }
 
-void theSchaetzler::handleRoot() {
+void Schaetzler::handleRoot() {
   server.send(200, "text/html", "G&uumlltige Befehle:<br> <a href=\"/Status\">Status</></a> gibt Messwert und Akkuspannung zur&uumlck <br> <a href=\"/OTA\">OTA</></a> aktiviert OTA");
 }
 
-void theSchaetzler::handleStatus() {
+void Schaetzler::handleStatus() {
     float RSSI = WiFi.RSSI();
     server.send(200, "text/html", 
       (String)"<meta http-equiv=\"refresh\" content=\"5\" />"
@@ -174,28 +175,28 @@ void theSchaetzler::handleStatus() {
 }
 
 
-bool theSchaetzler::readButton() {
+bool Schaetzler::readButton() {
   return digitalRead(PIN_BUTTON);
 }
 
-float theSchaetzler::readBatteryVoltage() {
+float Schaetzler::readBatteryVoltage() {
   batteryVoltage = analogRead(VOLTAGE_BATTERY)*2.0/4096.0*3.3;
   return batteryVoltage;
 }
 
-float theSchaetzler::readCalipersVoltage() {
+float Schaetzler::readCalipersVoltage() {
   calipersVoltage = analogRead(VOLTAGE_CALIPERS)/4096.0*3.3;
   return calipersVoltage;
 }
 
-void theSchaetzler::displayLogo() {
+void Schaetzler::displayLogo() {
   display.clearDisplay();
   display.drawBitmap(0,0,epd_bitmap_theSchaetzler_scale_bot,LOGO_WIDTH,LOGO_HEIGHT,1);
   display.setTextColor(SSD1306_WHITE);
   display.display();
 }
 
-void theSchaetzler::showUpdateProgress(uint8_t progress) {
+void Schaetzler::showUpdateProgress(uint8_t progress) {
   display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextSize(1);
@@ -206,7 +207,7 @@ void theSchaetzler::showUpdateProgress(uint8_t progress) {
   display.display();
 }
 
-void theSchaetzler::showValues() {
+void Schaetzler::showValues() {
   display.clearDisplay();
   display.setTextSize(1); 
   display.setTextColor(SSD1306_WHITE);
@@ -222,7 +223,7 @@ void theSchaetzler::showValues() {
 }
 
 // not used, keep as example
-void theSchaetzler::testscrolltext() {
+void Schaetzler::testscrolltext() {
   display.clearDisplay();
 
   display.setTextSize(2);
@@ -249,11 +250,11 @@ void theSchaetzler::testscrolltext() {
   delay(1000);
 }
 
-IPAddress theSchaetzler::getIP() {
+IPAddress Schaetzler::getIP() {
   return WiFi.localIP();
 }
 
-void theSchaetzler::showIP() {
+void Schaetzler::showIP() {
   display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextSize(2);
@@ -263,22 +264,22 @@ void theSchaetzler::showIP() {
   display.display();
 }
 
-void theSchaetzler::handleClient() {
+void Schaetzler::handleClient() {
   server.handleClient();
 }
 
-void theSchaetzler::handleOta() {
+void Schaetzler::handleOta() {
   ArduinoOTA.handle();
 }
 
 
-void theSchaetzler::setLED(uint8_t r, uint8_t g, uint8_t b) {
+void Schaetzler::setLED(uint8_t r, uint8_t g, uint8_t b) {
   pixels.setPixelColor(0, pixels.Color(r, g, b));
   pixels.show();
 }
 
 // not used, keep as example
-void theSchaetzler::scanWLan() {
+void Schaetzler::scanWLan() {
   Serial.println("Scan start");
   int n = WiFi.scanNetworks();
   Serial.println("Scan done");
@@ -335,7 +336,7 @@ void theSchaetzler::scanWLan() {
 }
 
 
-float theSchaetzler::read() {
+float Schaetzler::read() {
   while(true){
     uint16_t tempmicros=micros();
     while ((digitalRead(PIN_CLOCK)==HIGH)) {}
@@ -349,7 +350,7 @@ float theSchaetzler::read() {
   }
 }
 
-float theSchaetzler::decode() {
+float Schaetzler::decode() {
   int sign=1;
   long value=0;
   for (int i=0;i<23;i++) {

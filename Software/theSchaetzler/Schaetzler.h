@@ -17,7 +17,7 @@
 #define SCREEN_HEIGHT    32
 #define SCREEN_ADDRESS   0x3C
 
-class theSchaetzler {
+class Schaetzler {
 private:
   static void handleNotFound();
   static void handleRoot();
@@ -29,7 +29,7 @@ private:
   float decode();
 
 public:
-  theSchaetzler(uint8_t state);
+  Schaetzler(uint8_t state);
   void init();
 
   void handleClient();
