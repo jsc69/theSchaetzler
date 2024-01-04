@@ -2,10 +2,14 @@
  Class for TheSchätzler board (https://github.com/theBrutzler/theSchaetzler)
 
  open points:
-   - sleep + deactive WLAN, OTA, display etc
-   - read value via interupts
+   - sleep + deactive WLAN, OTA, display and calipers
+   - WIP: read value via interupts
+   - handle server by timer to reduce power consumption?
+   - wlan access point for config
    - html pages (make them nicer, OTA don't work, add config page)
    - remove global variables? (needed in static function to handle http requests and ota)
+   - add buttons from calipers? (cm/inch + on/off)
+   - handle inch?
 
  **************************************************************************/
 
@@ -87,7 +91,7 @@ void Schaetzler::handleClientTask(void* parameter) {
 
 void Schaetzler::readTask(void* parameter) {
   while(true) {
-    uint16_t tempmicros=micros();
+    uint32_t tempmicros=micros();
     while ((digitalRead(PIN_CLOCK)==HIGH)) {}
     //if clock is LOW wait until it turns to HIGH
     tempmicros=micros();
@@ -116,6 +120,56 @@ float Schaetzler::decode() {
   return (value*sign)/100.00;    
 }
 
+long lastClock=micros();
+uint8_t dataBit=0;
+uint32_t readedBits=0;
+bool inBitSequence=false;
+
+// interrupt handle when clockPin changed
+// see: https://sites.google.com/site/marthalprojects/home/arduino/arduino-reads-digital-caliper
+// -> Each complete dataset consists of a series of 24 bits
+// -> Between each series of 24 bits there is a longer period during which CLK remains HIGH (>500 micros)
+// -> The first bit is always high and does not have any proper meaning
+// -> Bit 21 is the sign bit: if bit 21 is HIGH, the value is negative 
+// -> what's the meaning of bits 22,23,24?
+void IRAM_ATTR Ext_INT1_ISR(){
+  long timeGap=micros()-lastClock;
+  lastClock=micros();
+
+  // only changes to low are interesting
+  if (digitalRead(PIN_CLOCK)) return;
+
+  if(inBitSequence) {
+    if(dataBit==23) { // or 21? 
+      inBitSequence=false;
+      int sign=1;
+      long value=0;
+      for(int i=0; i<23; i++) { // why 23, we only need 21
+        if(readedBits && 1<<i) {
+          if(i<20) {
+            value|= 1<<i;
+          }
+          if(i==20) {
+            sign=-1;
+          }
+        }
+      }
+      measurement = (value*sign)/100;
+      readedBits=0;
+      dataBit=0;
+    } else {
+      if (digitalRead(PIN_DATA)==LOW) {
+        readedBits |= 1<<dataBit;
+        dataBit++;
+      }
+    }
+  } else if(timeGap>500) {
+    // clk goes to false and was longer then 500 micros high -> we are at the start of a new bit sequence
+    readedBits=0;
+    inBitSequence=true;
+  }
+}
+
 void Schaetzler::setupCalipers() {
   setLED(64,64,64);
   float Voltage = 1.5;
@@ -128,6 +182,10 @@ void Schaetzler::setupCalipers() {
   uint8_t cpu = 1; // 0 or 1
   uint8_t priority = 0; // 0->lowest
   xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, cpu);
+
+  // use interrupts
+  //attachInterrupt(PIN_CLOCK, Ext_INT1_ISR, CHANGE);
+
   calipersOn=true;
   delay(500);
 }
