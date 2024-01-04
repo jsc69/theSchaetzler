@@ -7,7 +7,7 @@ const char webpage[] PROGMEM = R"=====(
 <h1>theSch&auml;tzler</h1>
 </div>
 <div><h2>
-  value(mm): <span id="value">0</span><br><br>
+  value(mm): <span id="value">XXX.XX</span><br><br>
 </h2>
 </div>
 <script>

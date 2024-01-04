@@ -17,10 +17,20 @@
 #define SCREEN_HEIGHT    32
 #define SCREEN_ADDRESS   0x3C
 
+#define ACTIVATE_CALIPERS 1
+#define ACTIVATE_DISPLAY  2
+#define ACTIVATE_WLAN     4
+#define ACTIVATE_OTA      8
+
 class Schaetzler {
 private:
   char ssid[80];
   char password[80];
+
+  void setupCalipers();
+  void setupDisplay();
+  void setupOta();
+  void setupWLan();
 
   static void handleNotFound();
   static void handleRoot();
@@ -37,19 +47,13 @@ private:
 
 public:
   Schaetzler(const char* ssid, const char* pwd);
-  void init();
+  void init(uint8_t mode);
 
   void handleOta();
-
-  void setupDisplay();
-  void setupOta();
-  void setupWLan();
-
   bool readButton();
 
-
   void displayLogo();
-  void testscrolltext();
+  void scrollText(const char* text);
   IPAddress getIP();
   void showIP();
   void showValues();

@@ -4,8 +4,8 @@
  open points:
    - sleep + deactive WLAN, OTA, display etc
    - read value via interupts
-   - html pages (make them nicer, OTA don't work)
-   - remove global variables? (needed in static function to handle http requests)
+   - html pages (make them nicer, OTA don't work, add config page)
+   - remove global variables? (needed in static function to handle http requests and ota)
 
  **************************************************************************/
 
@@ -33,11 +33,14 @@ Adafruit_NeoPixel pixels(NUMPIXELS, PIN_SCREEN, NEO_GRB + NEO_KHZ800);
 WebServer server(80);
 const wifi_power_t wifiPower = WIFI_POWER_13dBm;
 
-float messurement;
+float measurement;
 float batteryVoltage;
 float calipersVoltage;
 
-bool ota_setup = false;
+bool calipersOn;
+bool displayOn;
+bool wlanOn;
+bool otaOn;
 
 TaskHandle_t WebServerTask;
 TaskHandle_t ReadTask;
@@ -47,7 +50,7 @@ Schaetzler::Schaetzler(const char* ssid, const char* pwd) {
   strcpy(this->password, pwd);
 }
 
-void Schaetzler::init() {
+void Schaetzler::init(uint8_t mode) {
   pinMode(PIN_CLOCK, INPUT_PULLUP);
   pinMode(PIN_DATA, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
@@ -59,19 +62,21 @@ void Schaetzler::init() {
   pinMode(VOLTAGE_BATTERY, INPUT);
   pinMode(VOLTAGE_CALIPERS, INPUT);
 
-  float Voltage = 1.5;
-  analogWrite(VCC_CALIPERS,(int)(Voltage*255/3.24));
-
   pixels.begin();
 
-  // Create and start tasks for the WebServer and for the messurement on second cpu
-  // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
-  uint16_t stackSize = 10000;
-  void* parameter = NULL;
-  uint8_t cpu = 1; // 0 or 1
-  uint8_t priority = 0; // 0->lowest
-  xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, cpu);
-  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, cpu);
+  if(mode && ACTIVATE_DISPLAY) {
+    setupDisplay();
+    displayLogo();
+  }
+  if(mode && ACTIVATE_CALIPERS) {
+    setupCalipers();
+  }
+  if(mode && ACTIVATE_WLAN) {
+    setupWLan();
+  }
+  if(mode && ACTIVATE_OTA) {
+    setupOta();
+  }
 }
 
 void Schaetzler::handleClientTask(void* parameter) {
@@ -88,7 +93,7 @@ void Schaetzler::readTask(void* parameter) {
     tempmicros=micros();
     while ((digitalRead(PIN_CLOCK)==LOW)) {} //wait for the end of the HIGH pulse
     if ((micros()-tempmicros)>500) { //if the HIGH pulse was longer than 500 micros we are at the start of a new bit sequence
-      messurement = decode(); //decode the bit sequence
+      measurement = decode(); //decode the bit sequence
     }
   }
 }
@@ -111,22 +116,42 @@ float Schaetzler::decode() {
   return (value*sign)/100.00;    
 }
 
+void Schaetzler::setupCalipers() {
+  setLED(64,64,64);
+  float Voltage = 1.5;
+  analogWrite(VCC_CALIPERS,(int)(Voltage*255/3.24));
+
+  // Create and start task for the measurement on second cpu
+  // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
+  uint16_t stackSize = 10000;
+  void* parameter = NULL;
+  uint8_t cpu = 1; // 0 or 1
+  uint8_t priority = 0; // 0->lowest
+  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, cpu);
+  calipersOn=true;
+  delay(500);
+}
+
 void Schaetzler::setupDisplay() {
+  setLED(64,64,0);
   digitalWrite(VCC_DISPLAY, HIGH);
-  delay(20);
+  delay(100);
   I2C.begin(11, 12);
-  delay(20);
+  delay(100);
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     setLED(255,0,0);
-    delay(5000);
+    delay(2000);
     ESP.restart();
   }
+  displayOn=true;
+  delay(500);
 }
 
 void Schaetzler::setupOta() {
+  setLED(0,64,0);
   // Port defaults to 3232
   ArduinoOTA.setHostname("theSchaetzler");
   ArduinoOTA.setPassword("admin");
@@ -162,15 +187,19 @@ void Schaetzler::setupOta() {
       else if (error == OTA_END_ERROR) Serial.println("End Failed");
     });
 
-  ArduinoOTA.begin();  
+  ArduinoOTA.begin(); 
+  otaOn=true;
+  delay(500); 
 }
 
 void Schaetzler::handleOta() {
+  if(!otaOn) return;
   ArduinoOTA.handle();
 }
 
 
 void Schaetzler::setupWLan() {
+  setLED(0,0,64);
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   WiFi.setTxPower(wifiPower);
@@ -196,6 +225,16 @@ void Schaetzler::setupWLan() {
 
   server.begin();
   Serial.println("HTTP server started");
+
+    // Create and start task for the WebServer
+  // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
+  uint16_t stackSize = 10000;
+  void* parameter = NULL;
+  uint8_t cpu = 1; // 0 or 1
+  uint8_t priority = 0; // 0->lowest
+  xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, cpu);
+  wlanOn=true;
+  delay(500);
 }
 
 void Schaetzler::handleNotFound() {
@@ -224,7 +263,7 @@ void Schaetzler::handleStatus() {
 
 void Schaetzler::handleRead() {
   char buffer[40];
-  sprintf(buffer, "%6.2f", messurement);
+  sprintf(buffer, "%6.2f", measurement);
   server.send(200, "text/plane", buffer);
 }
 
@@ -243,6 +282,8 @@ float Schaetzler::readCalipersVoltage() {
 }
 
 void Schaetzler::displayLogo() {
+  if(!displayOn) return;
+
   display.clearDisplay();
   display.drawBitmap(0,0,epd_bitmap_theSchaetzler_scale_bot,LOGO_WIDTH,LOGO_HEIGHT,1);
   display.setTextColor(SSD1306_WHITE);
@@ -250,6 +291,8 @@ void Schaetzler::displayLogo() {
 }
 
 void Schaetzler::showUpdateProgress(uint8_t progress) {
+  if(!displayOn) return;
+  
   display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextSize(1);
@@ -261,8 +304,10 @@ void Schaetzler::showUpdateProgress(uint8_t progress) {
 }
 
 void Schaetzler::showValues() {
+  if(!displayOn) return;
+  
   char buffer[40];
-  sprintf(buffer, "%6.2f", messurement);
+  sprintf(buffer, "%6.2f", measurement);
 
   display.clearDisplay();
   display.setTextSize(1); 
@@ -283,6 +328,8 @@ IPAddress Schaetzler::getIP() {
 }
 
 void Schaetzler::showIP() {
+  if(!displayOn) return;
+  
   display.clearDisplay();
   display.setCursor(0, 0);
   display.setTextSize(2);
@@ -300,13 +347,15 @@ void Schaetzler::setLED(uint8_t r, uint8_t g, uint8_t b) {
 
 
 // not used, keep as example
-void Schaetzler::testscrolltext() {
+void Schaetzler::scrollText(const char* text) {
+  if(!displayOn) return;
+
   display.clearDisplay();
 
   display.setTextSize(2);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(10, 0);
-  display.println(F("scroll"));
+  display.println(F(text));
   display.display(); 
   delay(100);
 
@@ -329,6 +378,11 @@ void Schaetzler::testscrolltext() {
 
 // not used, keep as example
 void Schaetzler::scanWLan() {
+  if(!wlanOn) {
+    Serial.println("WLAN not activated!");
+    return;
+  }
+
   Serial.println("Scan start");
   int n = WiFi.scanNetworks();
   Serial.println("Scan done");
