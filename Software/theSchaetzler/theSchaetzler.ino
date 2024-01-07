@@ -7,9 +7,12 @@
  **************************************************************************/
 #include <credentials.h>
 
+#include <Adafruit_NeoPixel.h>
 #include "Schaetzler.h"
 
+unsigned long ticks;
 unsigned long ipmillis;
+unsigned long serialmillis;
 
 // ssid and password are taken from <Arduino_Home>/libraries/credentials/credentials.h
 // if not used as library, remove #include <credentials.h> above and set values here
@@ -23,17 +26,32 @@ void setup() {
   Serial.println("start");
 
   theSchaetzler.init(ACTIVATE_CALIPERS | ACTIVATE_DISPLAY | ACTIVATE_WLAN | ACTIVATE_OTA);
+
   theSchaetzler.setLED(0,0,0);
 }
 
-void loop() {    
+
+void printMeasurements() {
+  Serial.printf("%f\t%f\t%f\n",theSchaetzler.getCalipersVoltage(), theSchaetzler.getBatteryVoltage(), theSchaetzler.getMeasurement());
+}
+
+
+void loop() {
+  ticks = millis();
+
+  theSchaetzler.refresh();
   if(!theSchaetzler.readButton()){
-    if((millis()-ipmillis)>4000){
+    if((ticks-ipmillis)>4000){
       theSchaetzler.showIP();
     }
   } else {
-    ipmillis=millis();
+    ipmillis=ticks;
     theSchaetzler.showValues();
   }
+  if ((ticks-serialmillis)>1000) {
+    serialmillis=ticks;
+    printMeasurements();
+  }
+
   theSchaetzler.handleOta();
 }

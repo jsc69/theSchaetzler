@@ -1,3 +1,4 @@
+#include "WiFiGeneric.h"
 /**************************************************************************
  Class for TheSchätzler board (https://github.com/theBrutzler/theSchaetzler)
 
@@ -10,6 +11,7 @@
    - remove global variables? (needed in static function to handle http requests and ota)
    - add buttons from calipers? (cm/inch + on/off)
    - handle inch?
+   - move ota setup + handler to ino file
 
  **************************************************************************/
 
@@ -32,10 +34,10 @@
 #define OLED_RESET -1
 TwoWire I2C = TwoWire(0); 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2C, OLED_RESET);
-Adafruit_NeoPixel pixels(NUMPIXELS, PIN_SCREEN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN_LED, NEO_GRB + NEO_KHZ800);
 
 WebServer server(80);
-const wifi_power_t wifiPower = WIFI_POWER_13dBm;
+const wifi_power_t wifiPower = WIFI_POWER_11dBm;
 
 float measurement;
 float batteryVoltage;
@@ -50,35 +52,35 @@ TaskHandle_t WebServerTask;
 TaskHandle_t ReadTask;
 
 Schaetzler::Schaetzler(const char* ssid, const char* pwd) {
-  strcpy(this->ssid, ssid);
-  strcpy(this->password, pwd);
-}
-
-void Schaetzler::init(uint8_t mode) {
   pinMode(PIN_CLOCK, INPUT_PULLUP);
   pinMode(PIN_DATA, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
 
-  pinMode(VCC_DISPLAY,OUTPUT);
+  //pinMode(VCC_DISPLAY,OUTPUT); // cause a boot loop on theSchaetzler2
   pinMode(VCC_CALIPERS,OUTPUT);
 
   pinMode(VOLTAGE_BATTERY, INPUT);
   pinMode(VOLTAGE_CALIPERS, INPUT);
 
+  strcpy(this->ssid, ssid);
+  strcpy(this->password, pwd);
+}
+
+void Schaetzler::init(uint8_t mode) {
   pixels.begin();
 
-  if(mode && ACTIVATE_DISPLAY) {
+  if(mode & ACTIVATE_DISPLAY) {
     setupDisplay();
     displayLogo();
   }
-  if(mode && ACTIVATE_CALIPERS) {
+  if(mode & ACTIVATE_CALIPERS) {
     setupCalipers();
   }
-  if(mode && ACTIVATE_WLAN) {
+  if(mode & ACTIVATE_WLAN) {
     setupWLan();
   }
-  if(mode && ACTIVATE_OTA) {
+  if(mode & ACTIVATE_OTA) {
     setupOta();
   }
 }
@@ -174,12 +176,14 @@ void Schaetzler::setupCalipers() {
   setLED(64,64,64);
   float Voltage = 1.5;
   analogWrite(VCC_CALIPERS,(int)(Voltage*255/3.24));
+  delay(100);
+  log_d("Voltage: %f", readCalipersVoltage());
 
   // Create and start task for the measurement on second cpu
   // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
   uint16_t stackSize = 10000;
   void* parameter = NULL;
-  uint8_t cpu = 1; // 0 or 1
+  uint8_t cpu = 0; // 0 or 1
   uint8_t priority = 0; // 0->lowest
   xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, cpu);
 
@@ -191,6 +195,8 @@ void Schaetzler::setupCalipers() {
 }
 
 void Schaetzler::setupDisplay() {
+  pinMode(VCC_DISPLAY,OUTPUT); // causes a boot loop on Schaetzler2 :(
+
   setLED(64,64,0);
   digitalWrite(VCC_DISPLAY, HIGH);
   delay(100);
@@ -199,7 +205,7 @@ void Schaetzler::setupDisplay() {
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 allocation failed"));
+    log_e("SSD1306 allocation failed");
     setLED(255,0,0);
     delay(2000);
     ESP.restart();
@@ -208,6 +214,7 @@ void Schaetzler::setupDisplay() {
   delay(500);
 }
 
+// todo: move to ino file
 void Schaetzler::setupOta() {
   setLED(0,64,0);
   // Port defaults to 3232
@@ -226,23 +233,23 @@ void Schaetzler::setupOta() {
         type = "filesystem";
 
       // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-      Serial.println("Start updating " + type);
+      log_d("Start updating &s", type);
     })
     .onEnd([]() {
-      Serial.println("\nEnd");
+      log_d("\nEnd");
     })
     .onProgress([](unsigned int progress, unsigned int total) {
       int percent = progress / (total / 100);
       showUpdateProgress(percent);
-      Serial.printf("Progress: %u%%\r", percent);
+      log_d("Progress: %u%%\r", percent);
     })
     .onError([](ota_error_t error) {
-      Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+      log_d("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) log_e("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) log_e("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) log_e("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) log_e("Receive Failed");
+      else if (error == OTA_END_ERROR) log_e("End Failed");
     });
 
   ArduinoOTA.begin(); 
@@ -262,14 +269,14 @@ void Schaetzler::setupWLan() {
   WiFi.begin(ssid, password);
   WiFi.setTxPower(wifiPower);
   if (WiFi.waitForConnectResult() != WL_CONNECTED) {
-    Serial.println("Connection Failed! Rebooting...");
+    log_e("WIFI Connection Failed! Rebooting...");
     setLED(255,0,0);
     delay(2000);
     ESP.restart();
   }
   
   if (MDNS.begin("esp32")) {
-    Serial.println("MDNS responder started");
+    log_d("MDNS responder started");
   }
 
   server.onNotFound(handleNotFound);
@@ -282,13 +289,13 @@ void Schaetzler::setupWLan() {
   server.on("/read", handleRead);
 
   server.begin();
-  Serial.println("HTTP server started");
+  log_d("HTTP server started");
 
     // Create and start task for the WebServer
   // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
   uint16_t stackSize = 10000;
   void* parameter = NULL;
-  uint8_t cpu = 1; // 0 or 1
+  uint8_t cpu = 0; // 0 or 1
   uint8_t priority = 0; // 0->lowest
   xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, cpu);
   wlanOn=true;
@@ -329,13 +336,26 @@ bool Schaetzler::readButton() {
   return digitalRead(PIN_BUTTON);
 }
 
+void Schaetzler::refresh() {
+  readBatteryVoltage();
+  readCalipersVoltage();
+}
+
 float Schaetzler::readBatteryVoltage() {
   batteryVoltage = analogRead(VOLTAGE_BATTERY)*2.0/4096.0*3.3;
   return batteryVoltage;
 }
 
+float Schaetzler::getBatteryVoltage() {
+  return batteryVoltage;
+}
+
 float Schaetzler::readCalipersVoltage() {
   calipersVoltage = analogRead(VOLTAGE_CALIPERS)/4096.0*3.3;
+  return calipersVoltage;
+}
+
+float Schaetzler::getCalipersVoltage() {
   return calipersVoltage;
 }
 
@@ -346,6 +366,10 @@ void Schaetzler::displayLogo() {
   display.drawBitmap(0,0,epd_bitmap_theSchaetzler_scale_bot,LOGO_WIDTH,LOGO_HEIGHT,1);
   display.setTextColor(SSD1306_WHITE);
   display.display();
+}
+
+float Schaetzler::getMeasurement() {
+  return measurement;
 }
 
 void Schaetzler::showUpdateProgress(uint8_t progress) {

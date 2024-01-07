@@ -1,10 +1,9 @@
 #pragma once
 
 // hardware defs
-#define PIN_LED          47
+#define PIN_LED          15
 #define PIN_CLOCK        2
 #define PIN_DATA         4
-#define PIN_SCREEN       15 
 #define PIN_BUTTON       0
 
 #define VCC_CALIPERS     21
@@ -61,7 +60,11 @@ public:
 	void setLED(uint8_t r, uint8_t g, uint8_t b);
   void scanWLan();
 
-  float getMessurement();
+  void refresh();
+
+  float getMeasurement();
+  float getCalipersVoltage();
+  float getBatteryVoltage();
 
 protected:
 
