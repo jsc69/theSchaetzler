@@ -1,11 +1,12 @@
-/**************************************************************************
- This is software for TheSchätzler
+/****************************************************************************************
+ This is software for TheSchätzler (https://kurzschluss-blog.de/shop/)
+ forked from https://github.com/theBrutzler/theSchaetzler
 
  compile with:
     ESP32S3 Dev Module
 
- **************************************************************************/
-#include <credentials.h>
+ ***************************************************************************************/
+#include <credentials.h> // -> <Arduino_Home>/libraries/credentials/credentials.h
 
 #include <Adafruit_NeoPixel.h>
 #include "Schaetzler.h"
@@ -25,14 +26,22 @@ void setup() {
   Serial.begin(115200);
   Serial.println("start");
 
-  theSchaetzler.init(ACTIVATE_CALIPERS | ACTIVATE_DISPLAY | ACTIVATE_WLAN | ACTIVATE_OTA);
+  theSchaetzler.init( 0 
+    | ACTIVATE_CALIPERS   // does not work on theSchätzler1 :(, get around 0.2V - 0.3V
+    | ACTIVATE_DISPLAY    // kills theSchätzler2 :(
+    | ACTIVATE_WLAN 
+    | ACTIVATE_OTA
+    );
 
   theSchaetzler.setLED(0,0,0);
 }
 
 
 void printMeasurements() {
-  Serial.printf("%f\t%f\t%f\n",theSchaetzler.getCalipersVoltage(), theSchaetzler.getBatteryVoltage(), theSchaetzler.getMeasurement());
+  Serial.printf("C:%f\tB:%f\tM:%f\n"
+    ,theSchaetzler.getCalipersVoltage()
+    ,theSchaetzler.getBatteryVoltage()
+    ,theSchaetzler.getMeasurement());
 }
 
 
@@ -42,6 +51,8 @@ void loop() {
   theSchaetzler.refresh();
   if(!theSchaetzler.readButton()){
     if((ticks-ipmillis)>4000){
+      Serial.println(theSchaetzler.getIP());
+      theSchaetzler.setupDisplay();
       theSchaetzler.showIP();
     }
   } else {

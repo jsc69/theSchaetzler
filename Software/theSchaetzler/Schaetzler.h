@@ -5,6 +5,8 @@
 #define PIN_CLOCK        2
 #define PIN_DATA         4
 #define PIN_BUTTON       0
+#define PIN_SDA          11
+#define PIN_SCL          12
 
 #define VCC_CALIPERS     21
 #define VCC_DISPLAY      17
@@ -27,7 +29,6 @@ private:
   char password[80];
 
   void setupCalipers();
-  void setupDisplay();
   void setupOta();
   void setupWLan();
 
@@ -45,6 +46,8 @@ private:
   float readCalipersVoltage();
 
 public:
+  void setupDisplay(); //should be pivate
+
   Schaetzler(const char* ssid, const char* pwd);
   void init(uint8_t mode);
 

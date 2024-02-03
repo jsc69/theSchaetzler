@@ -9,9 +9,9 @@
    - wlan access point for config
    - html pages (make them nicer, OTA don't work, add config page)
    - remove global variables? (needed in static function to handle http requests and ota)
-   - add buttons from calipers? (cm/inch + on/off)
+   - add buttons from calipers? (cm/inch + on/off + zero)
    - handle inch?
-   - move ota setup + handler to ino file
+   - move ota setup + handler to ino file (not hardware related)
 
  **************************************************************************/
 
@@ -29,6 +29,9 @@
 #include "Schaetzler.h"
 #include "logo.h"
 #include "statuspage.h"
+
+#define CPU_READ  0
+#define CPU_WEBSERVER  0
 
 #define NUMPIXELS  1
 #define OLED_RESET -1
@@ -52,29 +55,29 @@ TaskHandle_t WebServerTask;
 TaskHandle_t ReadTask;
 
 Schaetzler::Schaetzler(const char* ssid, const char* pwd) {
-  pinMode(PIN_CLOCK, INPUT_PULLUP);
-  pinMode(PIN_DATA, INPUT_PULLUP);
+  pixels.begin();
+
   pinMode(PIN_LED, OUTPUT);
-  pinMode(PIN_BUTTON, INPUT_PULLUP);
-
-  //pinMode(VCC_DISPLAY,OUTPUT); // cause a boot loop on theSchaetzler2
-  pinMode(VCC_CALIPERS,OUTPUT);
-
   pinMode(VOLTAGE_BATTERY, INPUT);
-  pinMode(VOLTAGE_CALIPERS, INPUT);
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
 
   strcpy(this->ssid, ssid);
   strcpy(this->password, pwd);
 }
 
 void Schaetzler::init(uint8_t mode) {
-  pixels.begin();
-
   if(mode & ACTIVATE_DISPLAY) {
+    I2C.begin(PIN_SDA, PIN_SCL);
+    delay(800);
+    pinMode(VCC_DISPLAY,OUTPUT); // cause a boot loop on theSchaetzler2
     setupDisplay();
     displayLogo();
   }
   if(mode & ACTIVATE_CALIPERS) {
+    pinMode(VCC_CALIPERS,OUTPUT);
+    pinMode(PIN_CLOCK, INPUT_PULLUP);
+    pinMode(PIN_DATA, INPUT_PULLUP);
+    pinMode(VOLTAGE_CALIPERS, INPUT);
     setupCalipers();
   }
   if(mode & ACTIVATE_WLAN) {
@@ -174,7 +177,7 @@ void IRAM_ATTR Ext_INT1_ISR(){
 
 void Schaetzler::setupCalipers() {
   setLED(64,64,64);
-  float Voltage = 1.5;
+  float Voltage = 2.1;
   analogWrite(VCC_CALIPERS,(int)(Voltage*255/3.24));
   delay(100);
   log_d("Voltage: %f", readCalipersVoltage());
@@ -183,9 +186,8 @@ void Schaetzler::setupCalipers() {
   // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
   uint16_t stackSize = 10000;
   void* parameter = NULL;
-  uint8_t cpu = 0; // 0 or 1
   uint8_t priority = 0; // 0->lowest
-  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, cpu);
+  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, CPU_READ);
 
   // use interrupts
   //attachInterrupt(PIN_CLOCK, Ext_INT1_ISR, CHANGE);
@@ -195,12 +197,8 @@ void Schaetzler::setupCalipers() {
 }
 
 void Schaetzler::setupDisplay() {
-  pinMode(VCC_DISPLAY,OUTPUT); // causes a boot loop on Schaetzler2 :(
-
   setLED(64,64,0);
   digitalWrite(VCC_DISPLAY, HIGH);
-  delay(100);
-  I2C.begin(11, 12);
   delay(100);
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
@@ -295,9 +293,8 @@ void Schaetzler::setupWLan() {
   // see https://randomnerdtutorials.com/esp32-dual-core-arduino-ide/
   uint16_t stackSize = 10000;
   void* parameter = NULL;
-  uint8_t cpu = 0; // 0 or 1
   uint8_t priority = 0; // 0->lowest
-  xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, cpu);
+  xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, CPU_WEBSERVER);
   wlanOn=true;
   delay(500);
 }
