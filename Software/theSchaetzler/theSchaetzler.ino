@@ -8,7 +8,6 @@
  ***************************************************************************************/
 #include <credentials.h> // -> <Arduino_Home>/libraries/credentials/credentials.h
 
-#include <Adafruit_NeoPixel.h>
 #include "Schaetzler.h"
 
 unsigned long ticks;

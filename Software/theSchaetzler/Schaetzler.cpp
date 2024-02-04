@@ -1,4 +1,3 @@
-#include "WiFiGeneric.h"
 /**************************************************************************
  Class for TheSchätzler board (https://github.com/theBrutzler/theSchaetzler)
 
@@ -15,7 +14,6 @@
 
  **************************************************************************/
 
-#include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -30,8 +28,8 @@
 #include "logo.h"
 #include "statuspage.h"
 
-#define CPU_READ  0
-#define CPU_WEBSERVER  0
+#define CORE_READ  0
+#define CORE_WEBSERVER  0
 
 #define NUMPIXELS  1
 #define OLED_RESET -1
@@ -55,21 +53,21 @@ TaskHandle_t WebServerTask;
 TaskHandle_t ReadTask;
 
 Schaetzler::Schaetzler(const char* ssid, const char* pwd) {
-  pixels.begin();
-
-  pinMode(PIN_LED, OUTPUT);
-  pinMode(VOLTAGE_BATTERY, INPUT);
-  pinMode(PIN_BUTTON, INPUT_PULLUP);
-
   strcpy(this->ssid, ssid);
   strcpy(this->password, pwd);
 }
 
 void Schaetzler::init(uint8_t mode) {
+  I2C.begin(11, 12);
+  pixels.begin();  // INITIALIZE NeoPixel strip object (REQUIRED)
+
+  pinMode(PIN_LED, OUTPUT);
+  pinMode(VOLTAGE_BATTERY, INPUT);
+  pinMode(PIN_BUTTON, INPUT_PULLUP);
+
   if(mode & ACTIVATE_DISPLAY) {
-    I2C.begin(PIN_SDA, PIN_SCL);
-    delay(800);
-    pinMode(VCC_DISPLAY,OUTPUT); // cause a boot loop on theSchaetzler2
+    pinMode(VCC_DISPLAY, OUTPUT);
+    digitalWrite(VCC_DISPLAY, HIGH);
     setupDisplay();
     displayLogo();
   }
@@ -177,7 +175,7 @@ void IRAM_ATTR Ext_INT1_ISR(){
 
 void Schaetzler::setupCalipers() {
   setLED(64,64,64);
-  float Voltage = 2.1;
+  float Voltage = 1.5;
   analogWrite(VCC_CALIPERS,(int)(Voltage*255/3.24));
   delay(100);
   log_d("Voltage: %f", readCalipersVoltage());
@@ -187,7 +185,7 @@ void Schaetzler::setupCalipers() {
   uint16_t stackSize = 10000;
   void* parameter = NULL;
   uint8_t priority = 0; // 0->lowest
-  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, CPU_READ);
+  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, CORE_READ);
 
   // use interrupts
   //attachInterrupt(PIN_CLOCK, Ext_INT1_ISR, CHANGE);
@@ -198,7 +196,6 @@ void Schaetzler::setupCalipers() {
 
 void Schaetzler::setupDisplay() {
   setLED(64,64,0);
-  digitalWrite(VCC_DISPLAY, HIGH);
   delay(100);
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
@@ -294,7 +291,7 @@ void Schaetzler::setupWLan() {
   uint16_t stackSize = 10000;
   void* parameter = NULL;
   uint8_t priority = 0; // 0->lowest
-  xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, CPU_WEBSERVER);
+  xTaskCreatePinnedToCore(handleClientTask, "WebServerTask", stackSize, parameter, priority, &WebServerTask, CORE_WEBSERVER);
   wlanOn=true;
   delay(500);
 }
