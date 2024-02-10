@@ -138,17 +138,16 @@ bool inBitSequence=false;
 void IRAM_ATTR Ext_INT1_ISR(){
   long timeGap=micros()-lastClock;
   lastClock=micros();
-
-  // only changes to low are interesting
-  if (digitalRead(PIN_CLOCK)) return;
-
-  if(inBitSequence) {
+  if(timeGap>500) {
+    // clk goes to false and was longer then 500 micros high -> we are at the start of a new bit sequence
+    inBitSequence=true;
+  } else if(inBitSequence) {
     if(dataBit==23) { // or 21? 
       inBitSequence=false;
       int sign=1;
       long value=0;
-      for(int i=0; i<23; i++) { // why 23, we only need 21
-        if(readedBits && 1<<i) {
+      for(int i=0; i<21; i++) { // why 23, we only need 21
+        if(readedBits & (1<<i)) {
           if(i<20) {
             value|= 1<<i;
           }
@@ -161,16 +160,12 @@ void IRAM_ATTR Ext_INT1_ISR(){
       readedBits=0;
       dataBit=0;
     } else {
-      if (digitalRead(PIN_DATA)==LOW) {
+      if (digitalRead(PIN_DATA) == LOW) {
         readedBits |= 1<<dataBit;
         dataBit++;
       }
     }
-  } else if(timeGap>500) {
-    // clk goes to false and was longer then 500 micros high -> we are at the start of a new bit sequence
-    readedBits=0;
-    inBitSequence=true;
-  }
+  } 
 }
 
 void Schaetzler::setupCalipers() {
@@ -185,10 +180,10 @@ void Schaetzler::setupCalipers() {
   uint16_t stackSize = 10000;
   void* parameter = NULL;
   uint8_t priority = 0; // 0->lowest
-  xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, CORE_READ);
+  //xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, CORE_READ);
 
   // use interrupts
-  //attachInterrupt(PIN_CLOCK, Ext_INT1_ISR, CHANGE);
+  //attachInterrupt(PIN_CLOCK, Ext_INT1_ISR, FALLING);
 
   calipersOn=true;
   delay(500);
