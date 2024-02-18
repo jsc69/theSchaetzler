@@ -1,3 +1,4 @@
+#include <sys/_stdint.h>
 #pragma once
 
 // hardware defs
@@ -39,21 +40,20 @@ private:
   static void showUpdateProgress(uint8_t progress);
 
   static void handleClientTask(void* parameter);
-  static void readTask(void* parameter);
-  static float decode();
+  static void pinInterruptToCore(void* parameter);
 
   float readBatteryVoltage();
   float readCalipersVoltage();
 
 public:
-  void setupDisplay(); //should be pivate
-
   Schaetzler(const char* ssid, const char* pwd);
-  void init(uint8_t mode);
 
+  static void decode(uint32_t data);
+
+  void setupDisplay(); //should be pivate
+  void init(uint8_t mode);
   void handleOta();
   bool readButton();
-
   void displayLogo();
   void scrollText(const char* text);
   IPAddress getIP();
@@ -65,6 +65,7 @@ public:
 
   void refresh();
 
+  void setMeasurement(float data);
   float getMeasurement();
   float getCalipersVoltage();
   float getBatteryVoltage();

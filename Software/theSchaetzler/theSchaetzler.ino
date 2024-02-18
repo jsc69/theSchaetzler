@@ -43,6 +43,55 @@ void printMeasurements() {
     ,theSchaetzler.getMeasurement());
 }
 
+void takeMeasurement() {
+  unsigned long tempmicros=0;
+  bool sampled=false;
+  while (!sampled) {
+    while ((digitalRead(PIN_CLOCK) == HIGH)) {}
+    tempmicros = micros();
+    while ((digitalRead(PIN_CLOCK) == LOW)) {}  //wait for the end of the HIGH pulse
+    if ((micros() - tempmicros) > 500) {       //if the HIGH pulse was longer than 500 micros we are at the start of a new bit sequence
+      uint32_t value = 0;
+      for (int i = 0; i < 24; i++) {
+        while (digitalRead(PIN_CLOCK) == HIGH) {}  //wait until clock returns to HIGH- the first bit is not needed
+        while (digitalRead(PIN_CLOCK) == LOW) {}   //wait until clock returns to LOW
+        if (digitalRead(PIN_DATA) == LOW) {
+          value |= 1 << i;
+        }
+      }
+      decode(value);
+      sampled=true;
+    }
+  }
+}
+
+bool isDumping=false;
+void decode(uint32_t value) {
+  if (isDumping) return;
+  isDumping=true;
+
+  int sign = 1;
+  if(value & (1<<20)) sign=-1;
+  uint32_t data = value;
+  uint32_t bitmask = (1<<20)-1;
+  theSchaetzler.setMeasurement((float)(data & bitmask) * sign / 100.00);
+  dump(value);
+
+  isDumping=false;
+}
+
+void dump(uint32_t value) {
+  uint32_t temp = value;
+  char data[33];
+  for (int i=0; i<32; i++) {
+    if (temp & 1<<i)
+      data[31-i]='1';
+    else
+      data[31-i]='0';
+  }
+  data[32]=0;
+  Serial.printf("%s\n", data);
+}
 
 void loop() {
   ticks = millis();
@@ -60,8 +109,9 @@ void loop() {
   }
   if ((ticks-serialmillis)>1000) {
     serialmillis=ticks;
-    printMeasurements();
+    //printMeasurements();
   }
-
   theSchaetzler.handleOta();
+
+  takeMeasurement();
 }

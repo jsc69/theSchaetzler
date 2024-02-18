@@ -1,3 +1,4 @@
+#include <sys/_stdint.h>
 /**************************************************************************
  Class for TheSchätzler board (https://github.com/theBrutzler/theSchaetzler)
 
@@ -50,7 +51,7 @@ bool wlanOn;
 bool otaOn;
 
 TaskHandle_t WebServerTask;
-TaskHandle_t ReadTask;
+TaskHandle_t PinInterrupt;
 
 Schaetzler::Schaetzler(const char* ssid, const char* pwd) {
   strcpy(this->ssid, ssid);
@@ -92,82 +93,63 @@ void Schaetzler::handleClientTask(void* parameter) {
   }
 }
 
-void Schaetzler::readTask(void* parameter) {
-  while(true) {
-    uint32_t tempmicros=micros();
-    while ((digitalRead(PIN_CLOCK)==HIGH)) {}
-    //if clock is LOW wait until it turns to HIGH
-    tempmicros=micros();
-    while ((digitalRead(PIN_CLOCK)==LOW)) {} //wait for the end of the HIGH pulse
-    if ((micros()-tempmicros)>500) { //if the HIGH pulse was longer than 500 micros we are at the start of a new bit sequence
-      measurement = decode(); //decode the bit sequence
-    }
-  }
-}
-
-float Schaetzler::decode() {
-  int sign=1;
-  long value=0;
-  for (int i=0;i<23;i++) {
-    while (digitalRead(PIN_CLOCK)==HIGH) {} //wait until clock returns to HIGH- the first bit is not needed
-    while (digitalRead(PIN_CLOCK)==LOW) {} //wait until clock returns to LOW
-    if (digitalRead(PIN_DATA)==LOW) {
-      if (i<20) {
-        value|= 1<<i;
-      }
-      if (i==20) {
-        sign=-1;
-      }
-    }
-  }
-  return (value*sign)/100.00;    
-}
-
-long lastClock=micros();
-uint8_t dataBit=0;
-uint32_t readedBits=0;
-bool inBitSequence=false;
-
-// interrupt handle when clockPin changed
+// interrupt handle when clockPin falling
 // see: https://sites.google.com/site/marthalprojects/home/arduino/arduino-reads-digital-caliper
 // -> Each complete dataset consists of a series of 24 bits
 // -> Between each series of 24 bits there is a longer period during which CLK remains HIGH (>500 micros)
 // -> The first bit is always high and does not have any proper meaning
 // -> Bit 21 is the sign bit: if bit 21 is HIGH, the value is negative 
 // -> what's the meaning of bits 22,23,24?
+volatile long lastClock=micros();
+volatile uint8_t dataBit=0;
+volatile uint32_t readedBits=0;
+volatile bool inBitSequence=true;
+
 void IRAM_ATTR Ext_INT1_ISR(){
-  long timeGap=micros()-lastClock;
-  lastClock=micros();
-  if(timeGap>500) {
-    // clk goes to false and was longer then 500 micros high -> we are at the start of a new bit sequence
+  if(!inBitSequence && micros()-lastClock>500) {
+    // clk goes to false and last falling edge was longer ago then 500 micros -> so next call starts a new sequence
     inBitSequence=true;
-  } else if(inBitSequence) {
-    if(dataBit==23) { // or 21? 
-      inBitSequence=false;
-      int sign=1;
-      long value=0;
-      for(int i=0; i<21; i++) { // why 23, we only need 21
-        if(readedBits & (1<<i)) {
-          if(i<20) {
-            value|= 1<<i;
-          }
-          if(i==20) {
-            sign=-1;
-          }
-        }
-      }
-      measurement = (value*sign)/100;
-      readedBits=0;
-      dataBit=0;
-    } else {
-      if (digitalRead(PIN_DATA) == LOW) {
-        readedBits |= 1<<dataBit;
-        dataBit++;
+    return;
+  }
+  
+  lastClock=micros();
+  if(inBitSequence) {
+    if (digitalRead(PIN_DATA) == LOW) {
+      readedBits |= 1<<dataBit;
+      if (dataBit>=23) {
+        inBitSequence=false;
+        Schaetzler::decode(readedBits);
+        readedBits=0;
+        dataBit=0;
       }
     }
-  } 
+    dataBit++;
+  }
 }
 
+bool decodeIsRunning=false;
+void Schaetzler::decode(uint32_t data) {
+  if(decodeIsRunning) return;
+
+  decodeIsRunning=true;
+  uint32_t data1 = data;
+  int sign=1;
+  if(readedBits & 1<<21) sign=-1;
+  measurement = (((double)(data1 & (1<<21-1))))/100;
+  for(int i=0; i<24; i++) {
+    if(data1 & 1<<i) {
+      Serial.print("#");
+    } else {
+      Serial.print(".");
+    }
+  }
+  Serial.println();
+  decodeIsRunning=false;
+}
+
+void Schaetzler::pinInterruptToCore(void* parameter) {
+  attachInterrupt(PIN_CLOCK, Ext_INT1_ISR, FALLING);
+}
 void Schaetzler::setupCalipers() {
   setLED(64,64,64);
   float Voltage = 1.5;
@@ -180,9 +162,7 @@ void Schaetzler::setupCalipers() {
   uint16_t stackSize = 10000;
   void* parameter = NULL;
   uint8_t priority = 0; // 0->lowest
-  //xTaskCreatePinnedToCore(readTask, "ReadTask", stackSize, parameter, priority, &ReadTask, CORE_READ);
-
-  // use interrupts
+  //xTaskCreatePinnedToCore(pinInterruptToCore, "pinInterruptToCore", stackSize, parameter, priority, &PinInterrupt, CORE_READ);
   //attachInterrupt(PIN_CLOCK, Ext_INT1_ISR, FALLING);
 
   calipersOn=true;
@@ -336,7 +316,7 @@ float Schaetzler::readBatteryVoltage() {
 }
 
 float Schaetzler::getBatteryVoltage() {
-  return batteryVoltage;
+  return readedBits; //batteryVoltage;
 }
 
 float Schaetzler::readCalipersVoltage() {
@@ -345,7 +325,7 @@ float Schaetzler::readCalipersVoltage() {
 }
 
 float Schaetzler::getCalipersVoltage() {
-  return calipersVoltage;
+  return dataBit; //calipersVoltage;
 }
 
 void Schaetzler::displayLogo() {
@@ -359,6 +339,10 @@ void Schaetzler::displayLogo() {
 
 float Schaetzler::getMeasurement() {
   return measurement;
+}
+
+void Schaetzler::setMeasurement(float data) {
+  measurement = data;
 }
 
 void Schaetzler::showUpdateProgress(uint8_t progress) {
