@@ -21,6 +21,39 @@ const char* password = PASSWORD;
 
 Schaetzler theSchaetzler(ssid, password);
 
+//---------------------------------------------------------------------
+volatile long lastClock=micros();
+volatile uint8_t dataBit=0;
+volatile uint32_t readedBits=0;
+volatile bool inBitSequence=false;
+
+void IRAM_ATTR Ext_ChangeCLK_ISR(){
+  if (digitalRead(PIN_CLOCK) == LOW) {
+    lastClock=micros();
+    return;
+  }
+  if(!inBitSequence && micros()-lastClock>500) {
+    // clk goes to false and last falling edge was longer ago then 500 micros -> so next call starts a new sequence
+    inBitSequence=true;
+    return;
+  }
+  
+  if(inBitSequence) {
+    if (digitalRead(PIN_DATA) == LOW) {
+      readedBits |= 1<<dataBit;
+      if (dataBit>=23) {
+        inBitSequence=false;
+        theSchaetzler.decode(readedBits);
+        readedBits=0;
+        dataBit=0;
+      }
+    }
+    dataBit++;
+  }
+}
+//------------------------------------------------------------------
+
+
 void setup() {
   Serial.begin(115200);
   Serial.println("start");
@@ -28,11 +61,13 @@ void setup() {
   theSchaetzler.init( 0 
     | ACTIVATE_CALIPERS   // does not work on theSchätzler1 :(, get around 0.2V - 0.3V
     | ACTIVATE_DISPLAY    // kills theSchätzler2 :(
-    | ACTIVATE_WLAN 
-    | ACTIVATE_OTA
+//    | ACTIVATE_WLAN 
+//    | ACTIVATE_OTA
     );
 
   theSchaetzler.setLED(0,0,0);
+
+  //attachInterrupt(PIN_CLOCK, Ext_ChangeCLK_ISR, CHANGE);
 }
 
 
@@ -59,38 +94,10 @@ void takeMeasurement() {
           value |= 1 << i;
         }
       }
-      decode(value);
+      theSchaetzler.decode(value);
       sampled=true;
     }
   }
-}
-
-bool isDumping=false;
-void decode(uint32_t value) {
-  if (isDumping) return;
-  isDumping=true;
-
-  int sign = 1;
-  if(value & (1<<20)) sign=-1;
-  uint32_t data = value;
-  uint32_t bitmask = (1<<20)-1;
-  theSchaetzler.setMeasurement((float)(data & bitmask) * sign / 100.00);
-  dump(value);
-
-  isDumping=false;
-}
-
-void dump(uint32_t value) {
-  uint32_t temp = value;
-  char data[33];
-  for (int i=0; i<32; i++) {
-    if (temp & 1<<i)
-      data[31-i]='1';
-    else
-      data[31-i]='0';
-  }
-  data[32]=0;
-  Serial.printf("%s\n", data);
 }
 
 void loop() {
@@ -114,4 +121,6 @@ void loop() {
   theSchaetzler.handleOta();
 
   takeMeasurement();
+  delay(20);
 }
+

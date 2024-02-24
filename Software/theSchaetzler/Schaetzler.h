@@ -45,10 +45,12 @@ private:
   float readBatteryVoltage();
   float readCalipersVoltage();
 
+  void dumpMeasurement(uint32_t value);
+
 public:
   Schaetzler(const char* ssid, const char* pwd);
 
-  static void decode(uint32_t data);
+  void decode(uint32_t data);
 
   void setupDisplay(); //should be pivate
   void init(uint8_t mode);
